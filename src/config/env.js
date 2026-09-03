@@ -9,9 +9,11 @@ const env = {
   clientOrigin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
   // Comma-separated list of allowed CORS origins. Falls back to CLIENT_ORIGIN,
   // then localhost. Example: "http://localhost:5173,https://garudainternational.netlify.app"
+  // Normalized: trimmed, lowercased, and trailing slashes removed so env-var typos
+  // (a stray "/" or capitalization) don't break CORS.
   clientOrigins: (process.env.CLIENT_ORIGIN || "http://localhost:5173")
     .split(",")
-    .map((o) => o.trim())
+    .map((o) => o.trim().toLowerCase().replace(/\/+$/, ""))
     .filter(Boolean),
   seed: {
     adminEmail: process.env.SEED_ADMIN_EMAIL || "admin@arventure.com",
