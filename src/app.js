@@ -8,20 +8,12 @@ const { notFound, errorHandler } = require("./middleware/error");
 
 const app = express();
 
+// Allow requests from any origin. Note: with credentials:true you cannot use a
+// literal "*" origin, so we reflect whatever origin the request came from, which
+// has the same "allow all" effect while still returning a concrete origin header.
 app.use(
   cors({
-    origin(origin, callback) {
-      // Allow non-browser requests (curl, server-to-server) with no Origin header.
-      if (!origin) return callback(null, true);
-      // Normalize the incoming origin the same way as the allow-list (lowercase,
-      // no trailing slash) so minor mismatches don't get rejected.
-      const normalized = origin.toLowerCase().replace(/\/+$/, "");
-      if (env.clientOrigins.includes(normalized)) return callback(null, true);
-      // Don't throw (that yields a 500). Just deny CORS: the browser blocks it,
-      // but the server stays healthy and logs the offending origin.
-      console.warn(`CORS: blocked origin "${origin}". Allowed: ${env.clientOrigins.join(", ")}`);
-      return callback(null, false);
-    },
+    origin: true,
     credentials: true,
   })
 );
