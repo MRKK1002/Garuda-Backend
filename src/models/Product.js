@@ -19,8 +19,10 @@ const productSchema = new mongoose.Schema(
     model: { type: String, trim: true },
     productCode: { type: String, trim: true },
 
-    category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
-    brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand" },
+    // Brand and category are mandatory. If a sub-category is chosen in the UI, the
+    // deepest category (the sub-category) is stored here.
+    category: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
+    brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand", required: true },
 
     images: [{ type: String }], // image URLs (uploaded or external)
     video: { type: String, trim: true }, // optional video URL

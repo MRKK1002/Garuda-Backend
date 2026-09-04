@@ -7,11 +7,12 @@ const { scopeQuery, assertShowroomAccess } = require("../middleware/showroomScop
 
 // GET /api/v1/showrooms
 const list = asyncHandler(async (req, res) => {
-  const { q, status } = req.query;
+  const { q, status, type } = req.query;
 
   // Base scope: only showrooms this user may see (Super Admin sees all).
   const filter = { ...scopeQuery(req, "_id") };
   if (status) filter.status = status;
+  if (type) filter.type = type; // "warehouse" | "showroom"
   if (q) {
     filter.$or = [
       { name: new RegExp(q, "i") },

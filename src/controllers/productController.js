@@ -41,6 +41,8 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/v1/products
 const create = asyncHandler(async (req, res) => {
+  if (!req.body.brand) throw new ApiError(400, "Brand is required.");
+  if (!req.body.category) throw new ApiError(400, "Category is required.");
   const item = await Product.create(req.body);
   const created = await Product.findById(item._id)
     .populate("category", "name")
@@ -51,6 +53,10 @@ const create = asyncHandler(async (req, res) => {
 
 // PUT /api/v1/products/:id
 const update = asyncHandler(async (req, res) => {
+  // If these fields are present in the body they must not be blank (brand/category
+  // are mandatory). Absent fields are left unchanged.
+  if ("brand" in req.body && !req.body.brand) throw new ApiError(400, "Brand is required.");
+  if ("category" in req.body && !req.body.category) throw new ApiError(400, "Category is required.");
   const item = await Product.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,

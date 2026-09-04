@@ -8,6 +8,14 @@ const showroomSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     code: { type: String, required: true, unique: true, trim: true, uppercase: true },
 
+    // Location type. Warehouses hold stock and feed showrooms; showrooms are the
+    // customer-facing sales locations. Existing records default to "showroom".
+    type: {
+      type: String,
+      enum: ["warehouse", "showroom"],
+      default: "showroom",
+    },
+
     // Address
     address: { type: String, trim: true },
     city: { type: String, required: true, trim: true },
@@ -40,6 +48,7 @@ const showroomSchema = new mongoose.Schema(
 // --- Indexes ---
 // `code` already has a unique index from the schema definition above.
 showroomSchema.index({ status: 1 });
+showroomSchema.index({ type: 1 });
 showroomSchema.index({ city: 1 });
 showroomSchema.index({ organization: 1 });
 showroomSchema.index({ manager: 1 });
