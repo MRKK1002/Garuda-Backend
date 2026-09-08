@@ -29,10 +29,11 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/v1/categories
 const create = asyncHandler(async (req, res) => {
-  const { name, parent, description, status } = req.body;
+  const { name, parent, image, description, status } = req.body;
   const item = await Category.create({
     name,
     parent: parent || null,
+    image,
     description,
     status,
   });
@@ -41,14 +42,21 @@ const create = asyncHandler(async (req, res) => {
 
 // PUT /api/v1/categories/:id
 const update = asyncHandler(async (req, res) => {
-  const { name, parent, description, status } = req.body;
+  const { name, parent, image, description, status } = req.body;
   const item = await Category.findByIdAndUpdate(
     req.params.id,
-    { name, parent: parent || null, description, status },
+    { name, parent: parent || null, image, description, status },
     { new: true, runValidators: true }
   );
   if (!item) throw new ApiError(404, "Category not found.");
   res.json({ success: true, item });
+});
+
+// POST /api/v1/categories/upload  (multipart form field: "image")
+// Uploads a single category image and returns its public URL.
+const uploadImage = asyncHandler(async (req, res) => {
+  if (!req.file) throw new ApiError(400, "No file uploaded.");
+  res.status(201).json({ success: true, url: `/uploads/${req.file.filename}` });
 });
 
 // DELETE /api/v1/categories/:id
@@ -63,4 +71,4 @@ const remove = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { list, getOne, create, update, remove };
+module.exports = { list, getOne, create, update, remove, uploadImage };

@@ -18,10 +18,16 @@ const deliveryRoutes = require("./deliveryRoutes");
 const returnRoutes = require("./returnRoutes");
 const dashboardRoutes = require("./dashboardRoutes");
 const reportRoutes = require("./reportRoutes");
+const bannerRoutes = require("./bannerRoutes");
+const testimonialRoutes = require("./testimonialRoutes");
+const shopRoutes = require("./shopRoutes");
 
 const router = express.Router();
 
 router.get("/health", (req, res) => res.json({ success: true, status: "ok" }));
+
+// Public storefront (no auth).
+router.use("/shop", shopRoutes);
 
 router.use("/auth", authRoutes);
 router.use("/showrooms", showroomRoutes);
@@ -41,5 +47,7 @@ router.use("/deliveries", deliveryRoutes);
 router.use("/returns", returnRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/reports", reportRoutes);
+router.use("/banners", bannerRoutes);
+router.use("/testimonials", testimonialRoutes);
 
 module.exports = router;

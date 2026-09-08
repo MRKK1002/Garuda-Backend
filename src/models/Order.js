@@ -27,6 +27,24 @@ const orderSchema = new mongoose.Schema(
 
     items: { type: [orderItemSchema], default: [] },
 
+    // Where this order comes from and how it's paid (online orders vs showroom).
+    channel: {
+      type: String,
+      enum: ["showroom", "website", "mobile"],
+      default: "showroom",
+    },
+    // Delivery address snapshot (for website orders; may differ from the customer's
+    // default address).
+    deliveryAddress: {
+      address: { type: String, trim: true },
+      city: { type: String, trim: true },
+      state: { type: String, trim: true },
+      pincode: { type: String, trim: true },
+      lat: { type: Number },
+      lng: { type: Number },
+    },
+    paymentMethod: { type: String, trim: true }, // e.g. "online", "cod"
+
     subtotal: { type: Number, default: 0 },
     totalDiscount: { type: Number, default: 0 },
     totalTax: { type: Number, default: 0 },

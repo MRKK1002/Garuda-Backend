@@ -44,4 +44,11 @@ const remove = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { list, getOne, create, update, remove };
+// POST /api/v1/brands/upload  (multipart form field: "image")
+// Uploads a single brand logo and returns its public URL.
+const uploadImage = asyncHandler(async (req, res) => {
+  if (!req.file) throw new ApiError(400, "No file uploaded.");
+  res.status(201).json({ success: true, url: `/uploads/${req.file.filename}` });
+});
+
+module.exports = { list, getOne, create, update, remove, uploadImage };

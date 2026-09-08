@@ -24,6 +24,7 @@ const productSchema = new mongoose.Schema(
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
     brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand", required: true },
 
+    description: { type: String, trim: true }, // rich text / paragraph shown on the storefront
     images: [{ type: String }], // image URLs (uploaded or external)
     video: { type: String, trim: true }, // optional video URL
     specifications: [specSchema],

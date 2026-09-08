@@ -26,10 +26,11 @@ async function getStock(product, showroom) {
 
 // GET /api/v1/orders
 const list = asyncHandler(async (req, res) => {
-  const { status, customer, showroom } = req.query;
+  const { status, customer, showroom, channel } = req.query;
   const filter = { ...scopeQuery(req, "showroom") };
   if (status) filter.status = status;
   if (customer) filter.customer = customer;
+  if (channel) filter.channel = channel; // "website" | "showroom" | "mobile"
   if (showroom) {
     assertShowroomAccess(req, showroom);
     filter.showroom = showroom;

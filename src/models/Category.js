@@ -10,6 +10,7 @@ const categorySchema = new mongoose.Schema(
       ref: "Category",
       default: null,
     },
+    image: { type: String, trim: true }, // public URL (uploaded or external)
     description: { type: String, trim: true },
     status: {
       type: String,

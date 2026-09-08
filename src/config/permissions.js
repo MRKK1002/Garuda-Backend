@@ -34,6 +34,16 @@ const PERMISSION_CATALOG = [
     actions: ["view", "create", "edit", "delete"],
   },
   {
+    module: "banners",
+    label: "Banners",
+    actions: ["view", "create", "edit", "delete"],
+  },
+  {
+    module: "testimonials",
+    label: "Testimonials",
+    actions: ["view", "create", "edit", "delete"],
+  },
+  {
     module: "inventory",
     label: "Inventory",
     actions: ["view", "adjust", "transfer", "inward"],

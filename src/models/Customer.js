@@ -13,6 +13,16 @@ const customerSchema = new mongoose.Schema(
     state: { type: String, trim: true },
     pincode: { type: String, trim: true },
 
+    // Optional geo-coordinates when the address was detected via Google.
+    lat: { type: Number },
+    lng: { type: Number },
+
+    // Storefront phone-OTP auth. otp/otpExpires are transient (cleared after verify).
+    // profileComplete marks whether the customer finished the register form.
+    otp: { type: String },
+    otpExpires: { type: Date },
+    profileComplete: { type: Boolean, default: false },
+
     // New / existing / VIP / inactive, etc.
     segment: {
       type: String,
