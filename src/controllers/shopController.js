@@ -14,6 +14,10 @@ const Review = require("../models/Review");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 
+// Escape user input before putting it in a RegExp. Without this, a search term
+// containing regex metacharacters (e.g. "(" or "[") throws and 500s the request.
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // GET /api/v1/shop/products
 // Filters: q (search), category, brand, minPrice, maxPrice, featured, bestseller,
 // newArrival. Sort: newest (default), price_asc, price_desc. Pagination: page, limit.
@@ -49,10 +53,25 @@ const listProducts = asyncHandler(async (req, res) => {
     if (maxPrice) filter.sellingPrice.$lte = Number(maxPrice);
   }
 
-  // Search by name / model / code (regex so partial matches work without a text index).
-  if (q) {
-    const rx = new RegExp(q, "i");
-    filter.$or = [{ name: rx }, { model: rx }, { productCode: rx }];
+  // Search by name / model / code, plus brand and category names, so typing a
+  // brand ("toshiba") or a department ("washing") finds its products even when the
+  // term isn't in the product name. Regex (not a text index) so partial words match.
+  if (q && String(q).trim()) {
+    const rx = new RegExp(escapeRegex(String(q).trim()), "i");
+
+    // Resolve brand/category ids whose names match, so we can OR them in.
+    const [brandIds, categoryIds] = await Promise.all([
+      Brand.find({ name: rx }).distinct("_id"),
+      Category.find({ name: rx }).distinct("_id"),
+    ]);
+
+    filter.$or = [
+      { name: rx },
+      { model: rx },
+      { productCode: rx },
+      ...(brandIds.length ? [{ brand: { $in: brandIds } }] : []),
+      ...(categoryIds.length ? [{ category: { $in: categoryIds } }] : []),
+    ];
   }
 
   const sortMap = {
