@@ -11,6 +11,7 @@ router.get("/:id", requirePermission("quotations.view"), ctrl.getOne);
 router.post("/", requirePermission("quotations.create"), ctrl.create);
 router.put("/:id", requirePermission("quotations.edit"), ctrl.update);
 router.patch("/:id/status", requirePermission("quotations.approve"), ctrl.changeStatus);
+router.post("/:id/send", requirePermission("quotations.approve"), ctrl.sendQuotation);
 router.post("/:id/convert", requirePermission("orders.create"), ctrl.convertToOrder);
 router.delete("/:id", requirePermission("quotations.edit"), ctrl.remove);
 

@@ -7,6 +7,8 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get("/", requirePermission("payments.view"), ctrl.list);
+router.get("/outstanding", requirePermission("payments.view"), ctrl.outstanding);
 router.post("/", requirePermission("payments.create"), ctrl.create);
+router.post("/settle", requirePermission("payments.create"), ctrl.settle);
 
 module.exports = router;

@@ -12,6 +12,9 @@ const Payment = require("../models/Payment");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { signToken, verifyToken } = require("../utils/jwt");
+const { sendWelcomeEmail, sendOrderConfirmedEmail } = require("../utils/mailer");
+const { validateCoupon } = require("./couponController");
+const { pickOnlineShowroom, reserveStock } = require("../utils/stockEngine");
 
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -126,6 +129,9 @@ const completeProfile = asyncHandler(async (req, res) => {
   customer.profileComplete = true;
   await customer.save();
 
+  // Send welcome email (fire-and-forget — never blocks the response).
+  sendWelcomeEmail(customer).catch(() => {});
+
   res.json({ success: true, customer: publicCustomer(customer) });
 });
 
@@ -200,25 +206,16 @@ function publicCustomer(c) {
 // client). Payment is a dummy "paid" record until a real gateway is integrated.
 const checkout = asyncHandler(async (req, res) => {
   const customer = await requireCustomer(req);
-  const { items, deliveryAddress, paymentMethod = "online" } = req.body;
-
+  const { items, deliveryAddress, paymentMethod = "online", couponCode } = req.body;
   if (!Array.isArray(items) || items.length === 0) {
     throw new ApiError(400, "Your cart is empty.");
   }
-
-  // Website orders are fulfilled from a default showroom. Treat a missing `type` as a
-  // showroom (older records created before the type field was added). Only warehouses
-  // are excluded. Prefer active, but fall back to any showroom if none are active.
-  const notWarehouse = { type: { $ne: "warehouse" } };
-  let showroom =
-    (await Showroom.findOne({ ...notWarehouse, status: "active" }).select("_id")) ||
-    (await Showroom.findOne(notWarehouse).select("_id"));
-  if (!showroom) throw new ApiError(400, "No showroom available to fulfil online orders. Please create a showroom in the admin.");
-
   // Build order items from real product data (authoritative pricing).
   const orderItems = [];
   for (const line of items) {
-    const product = await Product.findOne({ _id: line.product, status: "active" }).lean();
+    const product = await Product.findOne({ _id: line.product, status: "active" })
+      .populate("category", "_id")
+      .lean();
     if (!product) continue;
     const qty = Math.max(1, Number(line.quantity) || 1);
     orderItems.push({
@@ -228,19 +225,45 @@ const checkout = asyncHandler(async (req, res) => {
       price: product.sellingPrice || product.mrp || 0,
       discount: 0,
       gst: product.gst || 0,
+      _categoryId: product.category?._id, // temp field for coupon check
     });
   }
   if (orderItems.length === 0) throw new ApiError(400, "No valid products in the cart.");
 
-  const count = await Order.countDocuments();
-  const number = `ORD-${String(count + 1).padStart(6, "0")}`;
+  // Pick the fulfilling showroom: nearest store to the customer that has full stock.
+  // If none has full stock, we still create the order but flag it for manual handling.
+  const { showroomId, hasStock } = await pickOnlineShowroom(customer, orderItems);
+  if (!showroomId) {
+    throw new ApiError(400, "No showroom available to fulfil online orders. Please create a showroom in the admin.");
+  }
+  const showroom = { _id: showroomId };
+  // Compute cart total before coupon.
+  const cartTotal = orderItems.reduce((s, it) => s + it.price * it.quantity, 0);
+  // Validate coupon if provided.
+  let couponDiscount = 0;
+  let appliedCouponCode = null;
+  if (couponCode) {
+    const categoryIds = [...new Set(orderItems.map((it) => String(it._categoryId)).filter(Boolean))];
+    const { coupon, discountAmount } = await validateCoupon(couponCode, cartTotal, categoryIds);
+    couponDiscount = discountAmount;
+    appliedCouponCode = coupon.code;
+    // Increment usage count.
+    await coupon.constructor.findByIdAndUpdate(coupon._id, { $inc: { usedCount: 1 } });
+  }
+  // Strip temp fields before saving.
+  const cleanItems = orderItems.map(({ _categoryId, ...rest }) => rest);
+  // Invoice number: same global serial as admin-created invoices (INV-0001, ...)
+  // so online and in-store orders share one gap-free sequence.
+  const Counter = require("../models/Counter");
+  const invSeq = await Counter.nextSeq("invoice");
+  const number = `INV-${String(invSeq).padStart(4, "0")}`;
 
   const order = await Order.create({
     number,
     customer: customer._id,
     showroom: showroom._id,
     channel: "website",
-    items: orderItems,
+    items: cleanItems,
     deliveryAddress: deliveryAddress || {
       address: customer.address,
       city: customer.city,
@@ -248,30 +271,46 @@ const checkout = asyncHandler(async (req, res) => {
       pincode: customer.pincode,
     },
     paymentMethod,
-    // Dummy gateway: treat as paid and confirmed.
+    coupon: appliedCouponCode,
+    couponDiscount,
     status: "confirmed",
     paymentStatus: "paid",
+    // If the chosen store had full stock, reserve it below and mark allocated.
+    // Otherwise the order is confirmed+paid but needs staff to source stock.
+    stockAllocated: hasStock,
+    fulfillmentStatus: hasStock ? "allocated" : "pending_assignment",
   });
-  // grandTotal is computed by the model's pre-validate hook.
   order.amountPaid = order.grandTotal;
   await order.save();
-
-  // Record a dummy payment so it shows in admin Payments too.
+  // Reserve stock at the chosen showroom (available -> reserved) when it's in stock.
+  if (hasStock) {
+    try {
+      await reserveStock(order, null);
+    } catch (err) {
+      // Race: stock ran out between check and reserve — flag for manual handling.
+      order.stockAllocated = false;
+      order.fulfillmentStatus = "pending_assignment";
+      await order.save();
+    }
+  }
   await Payment.create({
     order: order._id,
     customer: customer._id,
     showroom: showroom._id,
     amount: order.grandTotal,
-    mode: "upi", // online gateway placeholder
+    mode: "upi",
     status: "success",
     reference: `ONLINE-DUMMY-${Date.now()}`,
   });
-
+  sendOrderConfirmedEmail(order, customer).catch(() => {});
   res.status(201).json({
     success: true,
     orderId: order._id,
     number: order.number,
     total: order.grandTotal,
+    couponDiscount,
+    coupon: appliedCouponCode,
+    fulfillmentStatus: order.fulfillmentStatus,
   });
 });
 module.exports = { requestOtp, verifyOtp, completeProfile, me, updateProfile, myOrders, checkout, requireCustomer };

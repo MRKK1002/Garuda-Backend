@@ -42,6 +42,33 @@ const productSchema = new mongoose.Schema(
       ),
     ],
 
+    // myBillBook Item fields
+    itemType: {
+      type: String,
+      enum: ["product", "service"],
+      default: "product",
+    },
+    unit: { type: String, default: "PCS", trim: true },
+    showOnline: { type: Boolean, default: true },
+    purchasePrice: { type: Number, default: 0, min: 0 },
+    taxInclusive: { type: Boolean, default: true },
+    openingStock: { type: Number, default: 0 },
+    lowStockAlert: { type: Number, default: 0 },
+    serialTracking: { type: Boolean, default: false },
+    wholesalePrice: { type: Number, default: 0 },
+    minSellingPrice: { type: Number, default: 0 },
+    warranty: { type: String, trim: true },
+    color: { type: String, trim: true },
+    partyWisePrices: [
+      new mongoose.Schema(
+        {
+          partyType: { type: String, trim: true },
+          price: { type: Number, default: 0 },
+        },
+        { _id: false }
+      ),
+    ],
+
     // Pricing
     mrp: { type: Number, default: 0, min: 0 },
     sellingPrice: { type: Number, default: 0, min: 0 },

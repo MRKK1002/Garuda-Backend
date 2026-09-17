@@ -17,6 +17,18 @@ async function getOrCreateStock(product, showroom) {
   return stock;
 }
 
+// GET /api/v1/transfers/:id
+const getOne = asyncHandler(async (req, res) => {
+  const t = await StockTransfer.findById(req.params.id)
+    .populate("fromShowroom", "name code type")
+    .populate("toShowroom", "name code type")
+    .populate("items.product", "name sku")
+    .populate("requestedBy", "name email")
+    .lean();
+  if (!t) throw new ApiError(404, "Transfer not found.");
+  res.json({ success: true, item: t });
+});
+
 // GET /api/v1/transfers
 const list = asyncHandler(async (req, res) => {
   const { status } = req.query;
@@ -137,4 +149,4 @@ const changeStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, item: t });
 });
 
-module.exports = { list, create, changeStatus };
+module.exports = { list, getOne, create, changeStatus };

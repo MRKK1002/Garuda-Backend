@@ -8,6 +8,7 @@ router.use(authenticate);
 
 // Transfers are gated by the inventory.transfer permission.
 router.get("/", requirePermission("inventory.transfer"), ctrl.list);
+router.get("/:id", requirePermission("inventory.transfer"), ctrl.getOne);
 router.post("/", requirePermission("inventory.transfer"), ctrl.create);
 router.patch("/:id/status", requirePermission("inventory.transfer"), ctrl.changeStatus);
 

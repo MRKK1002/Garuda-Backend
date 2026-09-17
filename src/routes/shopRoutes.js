@@ -22,6 +22,17 @@ router.get("/banners", ctrl.listBanners);
 router.get("/testimonials", ctrl.listTestimonials);
 router.post("/enquiry", ctrl.submitEnquiry);
 
+// Coupon validation (public — no staff auth needed).
+const couponCtrl = require("../controllers/couponController");
+router.post("/coupons/validate", couponCtrl.validate);
+
+// Public active coupons list for display at checkout.
+router.get("/coupons", ctrl.listCoupons);
+
+// Public About page content.
+const aboutCtrl = require("../controllers/aboutController");
+router.get("/about", aboutCtrl.get);
+
 // Customer phone-OTP auth.
 router.post("/auth/request-otp", auth.requestOtp);
 router.post("/auth/verify-otp", auth.verifyOtp);

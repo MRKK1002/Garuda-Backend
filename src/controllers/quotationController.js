@@ -1,14 +1,18 @@
 // Quotation CRUD. Totals are computed by the model. A simple sequential number is
 // generated from the current count (fine for this scale).
 const Quotation = require("../models/Quotation");
+const Customer = require("../models/Customer");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { scopeQuery } = require("../middleware/showroomScope");
+const { sendQuotationEmail } = require("../utils/mailer");
 
-// Generate the next quotation number, e.g. QT-000042.
+// Generate the next quotation number via the atomic Counter, starting from 1:
+// QT-0001, QT-0002, ... (gap-free even under concurrent requests).
 async function nextQuotationNumber() {
-  const count = await Quotation.countDocuments();
-  return `QT-${String(count + 1).padStart(6, "0")}`;
+  const Counter = require("../models/Counter");
+  const seq = await Counter.nextSeq("quotation");
+  return `QT-${String(seq).padStart(4, "0")}`;
 }
 
 // GET /api/v1/quotations
@@ -123,4 +127,22 @@ const convertToOrder = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, item: order });
 });
 
-module.exports = { list, getOne, create, update, remove, changeStatus, convertToOrder, nextQuotationNumber };
+// POST /api/v1/quotations/:id/send
+const sendQuotation = asyncHandler(async (req, res) => {
+  const q = await Quotation.findById(req.params.id)
+    .populate("customer", "name mobile email")
+    .populate("items.product", "name sku");
+  if (!q) throw new ApiError(404, "Quotation not found.");
+
+  q.status = "sent";
+  await q.save();
+
+  // Trigger email if customer has email
+  if (q.customer?.email) {
+    sendQuotationEmail(q, q.customer).catch(() => {});
+  }
+
+  res.json({ success: true, item: q, message: "Quotation marked as sent." });
+});
+
+module.exports = { list, getOne, create, update, remove, changeStatus, convertToOrder, sendQuotation, nextQuotationNumber };

@@ -48,6 +48,8 @@ const orderSchema = new mongoose.Schema(
     subtotal: { type: Number, default: 0 },
     totalDiscount: { type: Number, default: 0 },
     totalTax: { type: Number, default: 0 },
+    coupon: { type: String, default: null },          // coupon code applied
+    couponDiscount: { type: Number, default: 0 },     // discount amount from coupon
     grandTotal: { type: Number, default: 0 },
 
     status: {
@@ -55,9 +57,16 @@ const orderSchema = new mongoose.Schema(
       enum: ["new", "confirmed", "processing", "dispatched", "delivered", "cancelled"],
       default: "new",
     },
-
     // Tracks whether stock has been reserved for this order (set on confirm).
     stockAllocated: { type: Boolean, default: false },
+
+    // Fulfillment status for online orders. "pending_assignment" means no showroom
+    // had full stock and staff must assign/restock before it can be fulfilled.
+    fulfillmentStatus: {
+      type: String,
+      enum: ["allocated", "pending_assignment"],
+      default: "allocated",
+    },
 
     paymentStatus: {
       type: String,
@@ -71,7 +80,9 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compute totals before validate (sync hook, no next per Mongoose 9).
+// Compute totals before validate. Prices are stored inclusive of GST —
+// the gst field is informational only (for invoice breakdowns), not added
+// on top of the price again.
 orderSchema.pre("validate", function computeTotals() {
   let subtotal = 0;
   let totalDiscount = 0;
@@ -79,22 +90,30 @@ orderSchema.pre("validate", function computeTotals() {
   for (const it of this.items) {
     const base = (it.price || 0) * (it.quantity || 0);
     const disc = it.discount || 0;
-    const taxable = Math.max(base - disc, 0);
     subtotal += base;
     totalDiscount += disc;
-    totalTax += (taxable * (it.gst || 0)) / 100;
+    if (it.gst > 0) {
+      const taxable = Math.max(base - disc, 0);
+      totalTax += taxable - taxable / (1 + it.gst / 100);
+    }
   }
   this.subtotal = subtotal;
   this.totalDiscount = totalDiscount;
-  this.totalTax = totalTax;
-  this.grandTotal = Math.max(subtotal - totalDiscount, 0) + totalTax;
+  this.totalTax = Math.round(totalTax * 100) / 100;
+  // grandTotal = price paid — item discounts and coupon discount applied, GST already included in price.
+  const beforeCoupon = Math.max(subtotal - totalDiscount, 0);
+  const couponDisc = Math.min(this.couponDiscount || 0, beforeCoupon);
+  this.grandTotal = Math.max(beforeCoupon - couponDisc, 0);
 });
-
 // --- Indexes ---
 orderSchema.index({ customer: 1 });
 orderSchema.index({ showroom: 1 });
 orderSchema.index({ status: 1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ createdAt: -1 });
-
+// Compound index for the paginated list: scoped by showroom, newest first.
+orderSchema.index({ showroom: 1, createdAt: -1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+// Invoice number lookups / search.
+orderSchema.index({ number: 1 });
 module.exports = mongoose.model("Order", orderSchema);

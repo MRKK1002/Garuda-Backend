@@ -12,45 +12,128 @@ const Delivery = require("../models/Delivery");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { scopeQuery, assertShowroomAccess } = require("../middleware/showroomScope");
+const { sendOrderConfirmedEmail, sendOrderDeliveredEmail } = require("../utils/mailer");
+const { reserveStock, fulfillStock, releaseStock } = require("../utils/stockEngine");
 
+// Invoice number: a clean global serial starting from 1 (INV-0001, INV-0002, ...)
+// via the atomic Counter so numbers never collide or skip.
 async function nextOrderNumber() {
-  const count = await Order.countDocuments();
-  return `ORD-${String(count + 1).padStart(6, "0")}`;
+  const Counter = require("../models/Counter");
+  const seq = await Counter.nextSeq("invoice");
+  return `INV-${String(seq).padStart(4, "0")}`;
 }
 
-async function getStock(product, showroom) {
-  let s = await Inventory.findOne({ product, showroom });
-  if (!s) s = await Inventory.create({ product, showroom });
-  return s;
-}
-
-// GET /api/v1/orders
-const list = asyncHandler(async (req, res) => {
-  const { status, customer, showroom, channel } = req.query;
+// Build the Mongo filter for order listing/stats from the request query.
+// Supports: showroom scope, status, customer, channel, ?q= (invoice# or customer
+// name), and ?from=&to= date range on createdAt.
+async function buildOrderFilter(req) {
+  const { status, customer, showroom, channel, q, from, to } = req.query;
   const filter = { ...scopeQuery(req, "showroom") };
   if (status) filter.status = status;
   if (customer) filter.customer = customer;
-  if (channel) filter.channel = channel; // "website" | "showroom" | "mobile"
+  if (channel) filter.channel = channel;
   if (showroom) {
     assertShowroomAccess(req, showroom);
     filter.showroom = showroom;
   }
-  const items = await Order.find(filter)
-    .populate("customer", "name mobile")
-    .populate("showroom", "name code")
-    .sort({ createdAt: -1 })
-    .lean();
-  res.json({ success: true, items });
+
+  // Date range on createdAt.
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(from);
+    if (to) {
+      const end = new Date(to);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = end;
+    }
+  }
+
+  // Text search: invoice number OR customer name (resolve matching customer ids).
+  if (q && q.trim()) {
+    const term = q.trim();
+    const rx = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const matchCustomers = await require("../models/Customer")
+      .find({ name: rx }).select("_id").limit(200).lean();
+    const custIds = matchCustomers.map((c) => c._id);
+    filter.$or = [{ number: rx }, ...(custIds.length ? [{ customer: { $in: custIds } }] : [])];
+  }
+
+  return filter;
+}
+
+// GET /api/v1/orders  — paginated, filtered list.
+// Query: page, limit, status, customer, showroom, channel, q, from, to
+const list = asyncHandler(async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const skip = (page - 1) * limit;
+
+  const filter = await buildOrderFilter(req);
+
+  const [items, total] = await Promise.all([
+    Order.find(filter)
+      .populate("customer", "name mobile")
+      .populate("showroom", "name code")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Order.countDocuments(filter),
+  ]);
+
+  res.json({
+    success: true,
+    items,
+    page,
+    limit,
+    total,
+    pages: Math.ceil(total / limit) || 1,
+  });
+});
+
+// GET /api/v1/orders/stats  — server-side totals for the stat cards (respects the
+// same filters as the list, minus pagination).
+const stats = asyncHandler(async (req, res) => {
+  const filter = await buildOrderFilter(req);
+
+  const [agg] = await Order.aggregate([
+    { $match: filter },
+    {
+      $group: {
+        _id: null,
+        // Non-cancelled totals
+        totalSales: {
+          $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$grandTotal", 0] },
+        },
+        paid: {
+          $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$amountPaid", 0] },
+        },
+        cancelled: {
+          $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, "$grandTotal", 0] },
+        },
+      },
+    },
+  ]);
+
+  const totalSales = agg?.totalSales || 0;
+  const paid = agg?.paid || 0;
+  const cancelled = agg?.cancelled || 0;
+  const unpaid = Math.max(totalSales - paid, 0);
+
+  res.json({ success: true, stats: { totalSales, paid, unpaid, cancelled } });
 });
 
 // GET /api/v1/orders/:id  (with related payments + deliveries for the detail page)
 const getOne = asyncHandler(async (req, res) => {
   const item = await Order.findById(req.params.id)
-    .populate("customer", "name mobile email")
-    .populate("showroom", "name code")
-    .populate("items.product", "name sku")
+    .populate("customer", "name mobile email address city state pincode gstin pan shippingAddress")
+    .populate("showroom", "name code address city state pincode gstin phone")
+    .populate("items.product", "name sku hsn gst unit")
     .lean();
   if (!item) throw new ApiError(404, "Order not found.");
+
+  // Store-wise access: a scoped user can only open orders from their showrooms.
+  assertShowroomAccess(req, item.showroom?._id || item.showroom);
 
   const [payments, deliveries] = await Promise.all([
     Payment.find({ order: item._id }).sort({ createdAt: -1 }).lean(),
@@ -84,9 +167,13 @@ const create = asyncHandler(async (req, res) => {
   }
 
   const created = await Order.findById(order._id)
-    .populate("customer", "name mobile")
+    .populate("customer", "name mobile email")
     .populate("showroom", "name code")
     .lean();
+
+  // Send order confirmation email to the customer (fire-and-forget).
+  sendOrderConfirmedEmail(created, created.customer).catch(() => {});
+
   res.status(201).json({ success: true, item: created });
 });
 
@@ -112,70 +199,38 @@ const changeStatus = asyncHandler(async (req, res) => {
     throw new ApiError(400, `Cannot ${action} an order that is '${order.status}'.`);
   }
 
-  // --- Stock effects ---
+  // --- Stock effects (shared engine so CRM + online behave identically) ---
   if (action === "confirm" && !order.stockAllocated) {
-    // Ensure enough available, then reserve.
-    for (const it of order.items) {
-      const s = await getStock(it.product, order.showroom);
-      if (s.available < it.quantity) {
-        throw new ApiError(400, "Insufficient available stock to confirm this order.");
-      }
-    }
-    for (const it of order.items) {
-      const s = await getStock(it.product, order.showroom);
-      s.available -= it.quantity;
-      s.reserved += it.quantity;
-      await s.save();
-      await StockLedger.create({
-        product: it.product,
-        showroom: order.showroom,
-        type: "outward",
-        quantity: -it.quantity,
-        balance: s.available,
-        note: `Reserved for order ${order.number}`,
-        refType: "Order",
-        refId: order._id,
-        createdBy: req.auth.user._id,
-      });
+    try {
+      await reserveStock(order, req.auth.user._id);
+    } catch (err) {
+      throw new ApiError(err.statusCode || 400, err.message);
     }
     order.stockAllocated = true;
+    order.fulfillmentStatus = "allocated";
   }
 
   if (action === "deliver") {
-    // Reserved -> sold.
-    for (const it of order.items) {
-      const s = await getStock(it.product, order.showroom);
-      s.reserved = Math.max(s.reserved - it.quantity, 0);
-      s.sold += it.quantity;
-      await s.save();
-    }
+    await fulfillStock(order, req.auth.user._id);
   }
 
   if (action === "cancel" && order.stockAllocated) {
-    // Release reserved back to available.
-    for (const it of order.items) {
-      const s = await getStock(it.product, order.showroom);
-      s.reserved = Math.max(s.reserved - it.quantity, 0);
-      s.available += it.quantity;
-      await s.save();
-      await StockLedger.create({
-        product: it.product,
-        showroom: order.showroom,
-        type: "adjustment",
-        quantity: it.quantity,
-        balance: s.available,
-        note: `Released from cancelled order ${order.number}`,
-        refType: "Order",
-        refId: order._id,
-        createdBy: req.auth.user._id,
-      });
-    }
+    await releaseStock(order, req.auth.user._id);
     order.stockAllocated = false;
   }
 
   order.status = rule.to;
   await order.save();
+
+  // Send delivery confirmation email when order is marked delivered.
+  if (action === "deliver") {
+    const populated = await Order.findById(order._id)
+      .populate("customer", "name mobile email")
+      .lean();
+    sendOrderDeliveredEmail(populated, populated.customer).catch(() => {});
+  }
+
   res.json({ success: true, item: order });
 });
 
-module.exports = { list, getOne, create, changeStatus };
+module.exports = { list, stats, getOne, create, changeStatus };

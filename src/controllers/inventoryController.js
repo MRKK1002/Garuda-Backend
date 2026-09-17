@@ -28,7 +28,7 @@ const list = asyncHandler(async (req, res) => {
 
   let items = await Inventory.find(filter)
     .populate("product", "name sku sellingPrice")
-    .populate("showroom", "name code")
+    .populate("showroom", "name code type")
     .sort({ updatedAt: -1 })
     .lean();
 
@@ -41,12 +41,24 @@ const list = asyncHandler(async (req, res) => {
 });
 
 // POST /api/v1/inventory/inward  { product, showroom, quantity, note }
+// Inward (receiving new stock from suppliers) is only allowed into WAREHOUSES.
+// Stock then moves warehouse -> showroom via the transfer workflow.
 const inward = asyncHandler(async (req, res) => {
   const { product, showroom, quantity, note } = req.body;
   const qty = Number(quantity);
   if (!product || !showroom) throw new ApiError(400, "product and showroom are required.");
   if (!qty || qty <= 0) throw new ApiError(400, "quantity must be a positive number.");
   assertShowroomAccess(req, showroom);
+
+  // Enforce: inward destination must be a warehouse.
+  const loc = await Showroom.findById(showroom).select("type name").lean();
+  if (!loc) throw new ApiError(404, "Location not found.");
+  if (loc.type !== "warehouse") {
+    throw new ApiError(
+      400,
+      `Stock inward is only allowed into warehouses. "${loc.name}" is a showroom — use a stock transfer to move stock into it.`
+    );
+  }
 
   const stock = await getOrCreateStock(product, showroom);
   stock.available += qty;
@@ -184,6 +196,9 @@ const bulkInward = asyncHandler(async (req, res) => {
       if (!product) throw new Error(`Unknown SKU: ${r.sku}`);
       const showroom = await resolveShowroom(r.showroomCode);
       if (!showroom) throw new Error(`Unknown showroom code: ${r.showroomCode}`);
+      if (showroom.type !== "warehouse") {
+        throw new Error(`${showroom.code} is a showroom — inward only allowed into warehouses`);
+      }
 
       // Enforce showroom access per row.
       assertShowroomAccess(req, showroom._id);

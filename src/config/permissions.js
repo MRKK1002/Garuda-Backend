@@ -44,6 +44,21 @@ const PERMISSION_CATALOG = [
     actions: ["view", "create", "edit", "delete"],
   },
   {
+    module: "coupons",
+    label: "Coupons",
+    actions: ["view", "create", "edit", "delete"],
+  },
+  {
+    module: "about",
+    label: "About Page",
+    actions: ["view", "edit"],
+  },
+  {
+    module: "settings",
+    label: "Business Settings",
+    actions: ["view", "edit"],
+  },
+  {
     module: "inventory",
     label: "Inventory",
     actions: ["view", "adjust", "transfer", "inward"],

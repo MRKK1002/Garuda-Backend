@@ -7,6 +7,7 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get("/", requirePermission("orders.view"), ctrl.list);
+router.get("/stats", requirePermission("orders.view"), ctrl.stats);
 router.get("/:id", requirePermission("orders.view"), ctrl.getOne);
 router.post("/", requirePermission("orders.create"), ctrl.create);
 // cancel needs orders.cancel; other transitions need orders.edit. The controller

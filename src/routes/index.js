@@ -14,6 +14,7 @@ const leadRoutes = require("./leadRoutes");
 const quotationRoutes = require("./quotationRoutes");
 const orderRoutes = require("./orderRoutes");
 const paymentRoutes = require("./paymentRoutes");
+const purchaseRoutes = require("./purchaseRoutes");
 const deliveryRoutes = require("./deliveryRoutes");
 const returnRoutes = require("./returnRoutes");
 const dashboardRoutes = require("./dashboardRoutes");
@@ -21,6 +22,9 @@ const reportRoutes = require("./reportRoutes");
 const bannerRoutes = require("./bannerRoutes");
 const testimonialRoutes = require("./testimonialRoutes");
 const shopRoutes = require("./shopRoutes");
+const couponRoutes = require("./couponRoutes");
+const aboutRoutes = require("./aboutRoutes");
+const companySettingsRoutes = require("./companySettingsRoutes");
 
 const router = express.Router();
 
@@ -29,7 +33,7 @@ router.get("/health", (req, res) => res.json({ success: true, status: "ok" }));
 // Public storefront (no auth).
 router.use("/shop", shopRoutes);
 
-router.use("/auth", authRoutes);
+   router.use("/auth", authRoutes);
 router.use("/showrooms", showroomRoutes);
 router.use("/roles", roleRoutes);
 router.use("/users", userRoutes);
@@ -43,11 +47,15 @@ router.use("/leads", leadRoutes);
 router.use("/quotations", quotationRoutes);
 router.use("/orders", orderRoutes);
 router.use("/payments", paymentRoutes);
+router.use("/purchases", purchaseRoutes);
 router.use("/deliveries", deliveryRoutes);
 router.use("/returns", returnRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/reports", reportRoutes);
 router.use("/banners", bannerRoutes);
 router.use("/testimonials", testimonialRoutes);
+router.use("/coupons", couponRoutes);
+router.use("/about", aboutRoutes);
+router.use("/company-settings", companySettingsRoutes);
 
 module.exports = router;

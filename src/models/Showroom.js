@@ -22,6 +22,12 @@ const showroomSchema = new mongoose.Schema(
     state: { type: String, required: true, trim: true },
     pincode: { type: String, trim: true },
 
+    // GPS coordinates for map pins and nearest-store calculation.
+    // Stored as plain numbers (not GeoJSON) — sufficient for Haversine distance
+    // on the client. Decimal degrees, WGS-84 (standard Google Maps format).
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+
     // Contact
     phone: { type: String, trim: true },
     email: { type: String, trim: true, lowercase: true },
@@ -41,6 +47,10 @@ const showroomSchema = new mongoose.Schema(
       enum: ["active", "inactive"],
       default: "active",
     },
+
+    // Per-store invoice counter. Each store gets its own running number so invoices
+    // read like BLR-001/INV/0042 instead of a single global series.
+    invoiceSeq: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

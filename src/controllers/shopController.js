@@ -11,6 +11,7 @@ const Lead = require("../models/Lead");
 const Banner = require("../models/Banner");
 const Testimonial = require("../models/Testimonial");
 const Review = require("../models/Review");
+const Coupon = require("../models/Coupon");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 
@@ -193,11 +194,9 @@ const listBrands = asyncHandler(async (req, res) => {
 });
 
 // GET /api/v1/shop/showrooms  (store locator - active showrooms, not warehouses)
-// A missing `type` is treated as a showroom (older records), so only warehouses are
-// excluded.
 const listShowrooms = asyncHandler(async (req, res) => {
   const items = await Showroom.find({ type: { $ne: "warehouse" }, status: "active" })
-    .select("name code address city state pincode phone email")
+    .select("name code address city state pincode phone email openingTime closingTime lat lng")
     .sort({ city: 1 })
     .lean();
   res.json({ success: true, items });
@@ -256,6 +255,23 @@ const listTestimonials = asyncHandler(async (req, res) => {
   res.json({ success: true, items });
 });
 
+// GET /api/v1/shop/coupons  — public list of active coupons for display at checkout.
+const listCoupons = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const items = await Coupon.find({
+    status: "active",
+    $and: [
+      { $or: [{ expiryDate: null }, { expiryDate: { $gte: now } }] },
+      { $or: [{ startDate: null }, { startDate: { $lte: now } }] },
+    ],
+  })
+    .select("code description type value maxDiscount minOrderAmount expiryDate categories")
+    .populate("categories", "name")
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json({ success: true, items });
+});
+
 module.exports = {
   listProducts,
   getProduct,
@@ -265,4 +281,5 @@ module.exports = {
   listBanners,
   listTestimonials,
   submitEnquiry,
+  listCoupons,
 };

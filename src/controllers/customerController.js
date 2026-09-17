@@ -11,6 +11,18 @@ const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
 const { scopeQuery } = require("../middleware/showroomScope");
 
+// A scoped user may touch a customer if it's assigned to one of their showrooms,
+// or if it's unassigned (shared pool — e.g. website customers). Super Admin: always.
+function assertCustomerAccess(req, customer) {
+  const { isSuperAdmin, showroomIds } = req.auth;
+  if (isSuperAdmin) return;
+  const assigned = customer.assignedShowroom?._id || customer.assignedShowroom;
+  if (!assigned) return; // unassigned customers are shared
+  if (showroomIds.length === 0 || !showroomIds.includes(String(assigned))) {
+    throw new ApiError(403, "You do not have access to this customer.");
+  }
+}
+
 // GET /api/v1/customers
 const list = asyncHandler(async (req, res) => {
   const { q, segment, status } = req.query;
@@ -39,6 +51,7 @@ const getOne = asyncHandler(async (req, res) => {
     .populate("assignedSalesperson", "name")
     .lean();
   if (!customer) throw new ApiError(404, "Customer not found.");
+  assertCustomerAccess(req, customer);
 
   const [leads, quotations, orders, payments, deliveries] = await Promise.all([
     Lead.find({ customer: customer._id }).populate("product", "name").sort({ createdAt: -1 }).lean(),
@@ -63,18 +76,24 @@ const create = asyncHandler(async (req, res) => {
 
 // PUT /api/v1/customers/:id
 const update = asyncHandler(async (req, res) => {
+  const existing = await Customer.findById(req.params.id);
+  if (!existing) throw new ApiError(404, "Customer not found.");
+  assertCustomerAccess(req, existing);
+
   const customer = await Customer.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
   });
-  if (!customer) throw new ApiError(404, "Customer not found.");
   res.json({ success: true, item: customer });
 });
 
 // DELETE /api/v1/customers/:id
 const remove = asyncHandler(async (req, res) => {
-  const customer = await Customer.findByIdAndDelete(req.params.id);
-  if (!customer) throw new ApiError(404, "Customer not found.");
+  const existing = await Customer.findById(req.params.id);
+  if (!existing) throw new ApiError(404, "Customer not found.");
+  assertCustomerAccess(req, existing);
+
+  await Customer.findByIdAndDelete(req.params.id);
   res.json({ success: true });
 });
 

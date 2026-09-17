@@ -3,6 +3,10 @@ const mongoose = require("mongoose");
 
 const paymentSchema = new mongoose.Schema(
   {
+    // Human-friendly serial, e.g. PAY-0001. A multi-invoice settlement shares one
+    // number across the payment rows it creates.
+    number: { type: String },
+
     order: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer" },
     showroom: { type: mongoose.Schema.Types.ObjectId, ref: "Showroom" },
@@ -26,6 +30,7 @@ const paymentSchema = new mongoose.Schema(
 );
 
 // --- Indexes ---
+paymentSchema.index({ number: 1 });
 paymentSchema.index({ order: 1 });
 paymentSchema.index({ customer: 1 });
 paymentSchema.index({ showroom: 1 });
