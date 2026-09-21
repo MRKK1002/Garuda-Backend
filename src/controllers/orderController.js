@@ -22,16 +22,30 @@ async function nextOrderNumber() {
   const seq = await Counter.nextSeq("invoice");
   return `INV-${String(seq).padStart(4, "0")}`;
 }
-
 // Build the Mongo filter for order listing/stats from the request query.
 // Supports: showroom scope, status, customer, channel, ?q= (invoice# or customer
 // name), and ?from=&to= date range on createdAt.
 async function buildOrderFilter(req) {
-  const { status, customer, showroom, channel, q, from, to } = req.query;
+  const { status, payment, customer, showroom, channel, q, from, to } = req.query;
   const filter = { ...scopeQuery(req, "showroom") };
   if (status) filter.status = status;
   if (customer) filter.customer = customer;
   if (channel) filter.channel = channel;
+
+  // Payment filter: paid / unpaid / partial, derived from grandTotal vs amountPaid
+  // (cancelled orders are excluded from these buckets).
+  if (payment) {
+    const notCancelled = { status: { $ne: "cancelled" } };
+    if (payment === "paid") {
+      Object.assign(filter, notCancelled, { $expr: { $lte: ["$grandTotal", "$amountPaid"] } });
+    } else if (payment === "unpaid") {
+      Object.assign(filter, notCancelled, { $expr: { $lte: ["$amountPaid", 0] } });
+    } else if (payment === "partial") {
+      Object.assign(filter, notCancelled, {
+        $expr: { $and: [{ $gt: ["$amountPaid", 0] }, { $lt: ["$amountPaid", "$grandTotal"] }] },
+      });
+    }
+  }
   if (showroom) {
     assertShowroomAccess(req, showroom);
     filter.showroom = showroom;
@@ -90,7 +104,6 @@ const list = asyncHandler(async (req, res) => {
     pages: Math.ceil(total / limit) || 1,
   });
 });
-
 // GET /api/v1/orders/stats  — server-side totals for the stat cards (respects the
 // same filters as the list, minus pagination).
 const stats = asyncHandler(async (req, res) => {
@@ -122,7 +135,6 @@ const stats = asyncHandler(async (req, res) => {
 
   res.json({ success: true, stats: { totalSales, paid, unpaid, cancelled } });
 });
-
 // GET /api/v1/orders/:id  (with related payments + deliveries for the detail page)
 const getOne = asyncHandler(async (req, res) => {
   const item = await Order.findById(req.params.id)
@@ -142,7 +154,6 @@ const getOne = asyncHandler(async (req, res) => {
 
   res.json({ success: true, item, related: { payments, deliveries } });
 });
-
 // POST /api/v1/orders
 const create = asyncHandler(async (req, res) => {
   const { customer, showroom, items, salesperson, quotation } = req.body;
@@ -176,7 +187,6 @@ const create = asyncHandler(async (req, res) => {
 
   res.status(201).json({ success: true, item: created });
 });
-
 // PATCH /api/v1/orders/:id/status  { action }
 // action: confirm | process | dispatch | deliver | cancel
 const changeStatus = asyncHandler(async (req, res) => {
@@ -232,5 +242,4 @@ const changeStatus = asyncHandler(async (req, res) => {
 
   res.json({ success: true, item: order });
 });
-
 module.exports = { list, stats, getOne, create, changeStatus };

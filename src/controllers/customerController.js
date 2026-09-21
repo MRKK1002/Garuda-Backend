@@ -5,6 +5,7 @@ const Lead = require("../models/Lead");
 const Quotation = require("../models/Quotation");
 const Showroom = require("../models/Showroom");
 const Order = require("../models/Order");
+const Purchase = require("../models/Purchase");
 const Payment = require("../models/Payment");
 const Delivery = require("../models/Delivery");
 const ApiError = require("../utils/ApiError");
@@ -41,7 +42,47 @@ const list = asyncHandler(async (req, res) => {
     .populate("assignedSalesperson", "name")
     .sort({ createdAt: -1 })
     .lean();
-  res.json({ success: true, items });
+
+  // Compute each party's LIVE outstanding balance from real documents:
+  //   receivable = unpaid on their sales orders (customer owes us)
+  //   payable    = unpaid on their purchase invoices (we owe the supplier)
+  // Net that against the manually-entered opening balance so the list reflects
+  // actual dues instead of a static field.
+  const ids = items.map((c) => c._id);
+  const [orderAgg, purchaseAgg] = await Promise.all([
+    Order.aggregate([
+      { $match: { customer: { $in: ids }, status: { $ne: "cancelled" } } },
+      { $group: { _id: "$customer", due: { $sum: { $subtract: ["$grandTotal", "$amountPaid"] } } } },
+    ]),
+    Purchase.aggregate([
+      { $match: { supplier: { $in: ids } } },
+      { $group: { _id: "$supplier", due: { $sum: { $subtract: ["$grandTotal", "$amountPaid"] } } } },
+    ]),
+  ]);
+
+  const receivableMap = {};
+  orderAgg.forEach((r) => { receivableMap[String(r._id)] = Math.max(r.due || 0, 0); });
+  const payableMap = {};
+  purchaseAgg.forEach((r) => { payableMap[String(r._id)] = Math.max(r.due || 0, 0); });
+
+  const withBalance = items.map((c) => {
+    const opening = Number(c.openingBalance) || 0;
+    const openingToPay = c.balanceType === "to_pay";
+    const receivable = (receivableMap[String(c._id)] || 0) + (openingToPay ? 0 : opening);
+    const payable = (payableMap[String(c._id)] || 0) + (openingToPay ? opening : 0);
+    const net = receivable - payable;
+    return {
+      ...c,
+      receivable,
+      payable,
+      // Keep openingBalance/balanceType in sync with the computed net so the existing
+      // UI (which reads these) shows the live figure.
+      openingBalance: Math.abs(net),
+      balanceType: net >= 0 ? "to_collect" : "to_pay",
+    };
+  });
+
+  res.json({ success: true, items: withBalance });
 });
 
 // GET /api/v1/customers/:id  (with related leads + quotations for Customer 360)

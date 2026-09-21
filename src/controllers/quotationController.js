@@ -15,6 +15,35 @@ async function nextQuotationNumber() {
   return `QT-${String(seq).padStart(4, "0")}`;
 }
 
+// GET /api/v1/quotations/:id/pdf  (public — shareable link)
+// Streams the quotation as a proper PDF document generated from HTML via Puppeteer.
+const pdf = asyncHandler(async (req, res) => {
+  const CompanySettings = require("../models/CompanySettings");
+  const { quotationPdf } = require("../utils/pdf");
+
+  const q = await Quotation.findById(req.params.id)
+    .populate("customer", "name mobile email gstin pan address city state pincode")
+    .populate("items.product", "name sku hsn unit gst")
+    .lean();
+  if (!q) throw new ApiError(404, "Quotation not found.");
+
+  const company = await CompanySettings.findOne({ key: "company" }).lean();
+  const buffer = await quotationPdf(q, company || {});
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${q.number}.pdf"`);
+  res.send(buffer);
+});
+
+// GET /api/v1/quotations/next-number
+// Returns the UPCOMING quotation number for display on the create form, WITHOUT
+// consuming the counter. The real number is assigned atomically on save.
+const nextNumber = asyncHandler(async (req, res) => {
+  const Counter = require("../models/Counter");
+  const seq = await Counter.peekSeq("quotation");
+  res.json({ success: true, number: `QT-${String(seq).padStart(4, "0")}`, seq });
+});
+
 // GET /api/v1/quotations
 const list = asyncHandler(async (req, res) => {
   const { status, customer } = req.query;
@@ -31,8 +60,9 @@ const list = asyncHandler(async (req, res) => {
 // GET /api/v1/quotations/:id
 const getOne = asyncHandler(async (req, res) => {
   const item = await Quotation.findById(req.params.id)
-    .populate("customer", "name mobile email")
-    .populate("items.product", "name sku")
+    .populate("customer", "name mobile email gstin pan address city state pincode shippingAddress")
+    .populate("showroom", "name code city state")
+    .populate("items.product", "name sku hsn unit gst")
     .lean();
   if (!item) throw new ApiError(404, "Quotation not found.");
   res.json({ success: true, item });
@@ -145,4 +175,4 @@ const sendQuotation = asyncHandler(async (req, res) => {
   res.json({ success: true, item: q, message: "Quotation marked as sent." });
 });
 
-module.exports = { list, getOne, create, update, remove, changeStatus, convertToOrder, sendQuotation, nextQuotationNumber };
+module.exports = { list, getOne, create, update, remove, changeStatus, convertToOrder, sendQuotation, nextQuotationNumber, nextNumber, pdf };

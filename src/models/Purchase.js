@@ -69,29 +69,30 @@ const purchaseSchema = new mongoose.Schema(
 );
 
 // Compute totals from line items before validation/save. Purchase prices are treated
-// as tax-inclusive here (matching the sales side): the GST portion is decomposed out
-// of the line amount rather than added on top.
+// as TAX-EXCLUSIVE (like myBillBook): the rate is the net price and GST is added ON
+// TOP. So grandTotal = taxable + GST + charges - bill discount.
 purchaseSchema.pre("validate", function computeTotals() {
-  let subtotal = 0;
+  let subtotal = 0; // taxable value (price x qty, before tax)
   let totalDiscount = 0;
   let totalTax = 0;
   for (const it of this.items) {
     const lineBase = (it.price || 0) * (it.quantity || 0);
     const lineDiscount = it.discount || 0;
-    const net = Math.max(lineBase - lineDiscount, 0);
+    const taxable = Math.max(lineBase - lineDiscount, 0);
     const rate = it.gst || 0;
-    const taxable = rate > 0 ? net / (1 + rate / 100) : net;
-    const lineTax = net - taxable;
+    const lineTax = (taxable * rate) / 100; // GST added on top
     subtotal += lineBase;
     totalDiscount += lineDiscount;
     totalTax += lineTax;
   }
   const extra = this.additionalCharges || 0;
   const billDisc = this.billDiscount || 0;
+  const taxableAfterDisc = Math.max(subtotal - totalDiscount, 0);
   this.subtotal = Math.round(subtotal * 100) / 100;
   this.totalDiscount = totalDiscount;
   this.totalTax = Math.round(totalTax * 100) / 100;
-  this.grandTotal = Math.max(subtotal - totalDiscount, 0) + extra - billDisc;
+  this.grandTotal =
+    Math.round((taxableAfterDisc + this.totalTax + extra - billDisc) * 100) / 100;
 
   // Derive payment status from amountPaid vs grandTotal.
   if (this.amountPaid >= this.grandTotal && this.grandTotal > 0) this.paymentStatus = "paid";

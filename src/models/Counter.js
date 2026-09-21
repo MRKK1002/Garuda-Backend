@@ -22,4 +22,11 @@ counterSchema.statics.nextSeq = async function nextSeq(key) {
   return doc.seq;
 };
 
+// Peek the NEXT value WITHOUT incrementing — for showing the upcoming number on a
+// create form. The real number is only committed on save (via nextSeq).
+counterSchema.statics.peekSeq = async function peekSeq(key) {
+  const doc = await this.findById(key).lean();
+  return (doc?.seq || 0) + 1;
+};
+
 module.exports = mongoose.model("Counter", counterSchema);
